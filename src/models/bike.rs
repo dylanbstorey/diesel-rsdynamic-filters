@@ -60,13 +60,13 @@ impl NewBike {
 /// enabling flexible and powerful search capabilities for bikes.
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone)]
-pub enum Condition {
+pub enum BikeCondition {
     /// Filter by the name of the bike.
     name(StringFilter),
     /// Filter by the color of the bike.
     color(StringFilter),
     /// Combine multiple conditions with a logical AND.
-    And(Vec<Condition>),
+    And(Vec<BikeCondition>),
     /// Combine multiple conditions with a logical OR.
-    Or(Vec<Condition>),
+    Or(Vec<BikeCondition>),
 }

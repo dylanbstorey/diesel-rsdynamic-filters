@@ -46,14 +46,15 @@ impl NewPerson {
 /// This enum is crucial for implementing dynamic filtering in the data access layer.
 /// It allows for the construction of complex query conditions at runtime,
 /// enabling flexible and powerful search capabilities for persons.
+#[allow(non_camel_case_types)]
 #[derive(Debug, Clone)]
-pub enum Condition {
+pub enum PersonCondition {
     /// Filter by the name of the person.
-    Name(StringFilter),
+    name(StringFilter),
     /// Filter by conditions related to the bikes owned by the person.
-    Bike(Vec<super::bike::Condition>),
+    bike(Vec<crate::models::bike::BikeCondition>),
     /// Combine multiple conditions with a logical AND.
-    And(Vec<Condition>),
+    And(Vec<PersonCondition>),
     /// Combine multiple conditions with a logical OR.
-    Or(Vec<Condition>),
+    Or(Vec<PersonCondition>),
 }

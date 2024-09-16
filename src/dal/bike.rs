@@ -1,11 +1,70 @@
-use diesel::prelude::*;
+use diesel::pg::Pg;
+use diesel::{
+    helper_types::{IntoBoxed, LeftJoin, LeftJoinQuerySource},
+    prelude::*,
+    sql_types::{Bool, Nullable},
+};
 use diesel::r2d2::{self, ConnectionManager};
 use crate::models::bike::{Bike, NewBike};
-use crate::models::common::{StringFilter, NumberFilter};
+use crate::models::common::StringFilter;
+use crate::schema;
 use crate::schema::bike::dsl::*;
+use crate::models::bike::BikeCondition;
+use crate::dal::string_filter;
+use crate::models::AndOr;
 
 /// Type alias for the database connection pool
 type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
+
+type ConditionSource = LeftJoinQuerySource<schema::bike::dsl::bike, schema::color::dsl::color>;
+type BoxedCondition = Box<dyn BoxableExpression<ConditionSource, Pg, SqlType = Nullable<Bool>>>;
+type QuerySource = LeftJoin<schema::bike::dsl::bike, schema::color::dsl::color>;
+type BoxedQuery = IntoBoxed<'static, QuerySource, Pg>;
+
+impl BikeCondition {
+    fn to_boxed_condition(self) -> Option<BoxedCondition> {
+        Some(match self {
+            BikeCondition::name(f) => string_filter!(f, schema::bike::dsl::name),
+            BikeCondition::color(f) => string_filter!(f, schema::color::dsl::name),
+            BikeCondition::And(conditions) => match create_filter(conditions, AndOr::And) {
+                Some(boxed_condition) => boxed_condition,
+                None => return None,
+            },
+            BikeCondition::Or(conditions) => match create_filter(conditions, AndOr::Or) {
+                Some(boxed_condition) => boxed_condition,
+                None => return None,
+            },
+        })
+    }
+}
+
+
+// This method can also be made into a macro, but it should be fine to just duplicate
+fn create_filter(conditions: Vec<BikeCondition>, and_or: AndOr) -> Option<BoxedCondition> {
+    conditions
+        .into_iter()
+        // Map into array of boxed conditions
+        .filter_map::<BoxedCondition, _>(BikeCondition::to_boxed_condition)
+        // Reduce to a boxed_condition1.and(boxed_condition2).and(boxed_condition3)...
+        .fold(None, |boxed_conditions, boxed_condition| {
+            Some(match boxed_conditions {
+                Some(bc) => match and_or {
+                    AndOr::And => Box::new(bc.and(boxed_condition)),
+                    AndOr::Or => Box::new(bc.or(boxed_condition)),
+                },
+                None => boxed_condition,
+            })
+        })
+}
+pub(super) fn create_filtered_query(conditions: Vec<BikeCondition>) -> BoxedQuery {
+    let boxed_query = schema::bike::dsl::bike.left_join(schema::color::dsl::color).into_boxed();
+
+    match create_filter(conditions, AndOr::And) {
+        Some(boxed_conditions) => boxed_query.filter(boxed_conditions),
+        None => boxed_query,
+    }
+}
+
 
 /// Data Access Layer for Bike entities
 pub struct BikeDAL {
@@ -98,55 +157,24 @@ impl BikeDAL {
             .execute(&mut conn)
     }
 
-    /// Finds bikes with optional color and owner filters
-    ///
-    /// This method allows for dynamic querying of bikes based on their color and owner.
-    /// It demonstrates how to build complex, conditional queries using Diesel.
+    /// Finds bikes with filters using Condition
     ///
     /// # Arguments
     ///
-    /// * `color_filter` - An optional filter for the bike's color
-    /// * `owner_filter` - An optional filter for the bike's owner
+    /// * `conditions` - A vector of Condition enums for filtering
     ///
     /// # Returns
     ///
     /// A vector of bikes matching the filters or a database error
-    ///
-    /// # How it works
-    ///
-    /// 1. It starts with a base query for all bikes.
-    /// 2. If a color filter is provided, it modifies the query based on the filter type:
-    ///    - Equal: Matches bikes with the exact color ID
-    ///    - NotEqual: Matches bikes with a different color ID
-    ///    - Like: Matches bikes where the color ID is similar (useful for partial matches)
-    ///    - In: Matches bikes where the color ID is in a list of values
-    /// 3. If an owner filter is provided, it applies similar logic to the owner ID.
-    /// 4. Finally, it executes the built query and returns the results.
-    ///
-    /// This approach allows for flexible and powerful querying without the need for
-    /// multiple specific methods for each combination of filters.
-    pub fn find_with_filters(&self, color_filter: Option<StringFilter>, owner_filter: Option<StringFilter>) -> QueryResult<Vec<Bike>> {
+    pub fn find_with_filters(&self, conditions: Vec<BikeCondition>) -> QueryResult<Vec<Bike>> {
         let mut conn = self.pool.get().expect("Couldn't get DB connection");
-        let mut query = bike.into_boxed();
+        
+        let query = create_filtered_query(conditions);
 
-        if let Some(cf) = color_filter {
-            query = match cf {
-                StringFilter::Equal(val) => query.filter(color_id.eq(val)),
-                StringFilter::NotEqual(val) => query.filter(color_id.ne(val)),
-                StringFilter::Like(val) => query.filter(color_id.like(val)),
-                StringFilter::In(vals) => query.filter(color_id.eq_any(vals)),
-            };
-        }
-
-        if let Some(of) = owner_filter {
-            query = match of {
-                StringFilter::Equal(val) => query.filter(owner_id.eq(val)),
-                StringFilter::NotEqual(val) => query.filter(owner_id.ne(val)),
-                StringFilter::Like(val) => query.filter(owner_id.like(val)),
-                StringFilter::In(vals) => query.filter(owner_id.eq_any(vals)),
-            };
-        }
-
-        query.load::<Bike>(&mut conn)
-    }
+        query
+            .select(bike::all_columns())
+            .distinct()
+            .load::<Bike>(&mut conn)
+    }  
 }
+

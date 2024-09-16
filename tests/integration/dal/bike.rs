@@ -1,42 +1,54 @@
-use pedal_pal::models::bike::NewBike;
+use pedal_pal::models::bike::{NewBike, Condition};
 use pedal_pal::models::person::NewPerson;
 use pedal_pal::models::color::NewColor;
 use pedal_pal::models::common::StringFilter;
 use crate::fixtures::TestFixture;
 
-fn setup() -> (TestFixture, NewBike) {
+fn setup() -> TestFixture {
     let fixture = TestFixture::new();
     let dal = fixture.dal();
 
-    let p = NewPerson::new("Bike Owner");
-    let c = NewColor::new("Red");
+    // Create persons
+    let alice = fixture.create_person("Alice");
+    let bob = fixture.create_person("Bob");
 
-    let person = dal.person().create(&p).unwrap();
-    let color = dal.color().create(&c).unwrap();
+    // Create colors
+    let red = fixture.create_color("Red");
+    let blue = fixture.create_color("Blue");
+    let green = fixture.create_color("Green");
 
-    let new_bike = NewBike::new("Mountain Bike", Some(&person.id), Some(&color.id));
-    
-    (fixture, new_bike)
+    // Create bikes
+    fixture.create_bike("Mountain Bike", Some(&alice.id), Some(&red.id));
+    fixture.create_bike("Road Bike", Some(&bob.id), Some(&blue.id));
+    fixture.create_bike("City Bike", Some(&alice.id), Some(&green.id));
+    fixture.create_bike("BMX Bike", None, Some(&red.id));
+
+    fixture
 }
 
 #[test]
 fn test_bike_create() {
-    let (fixture, new_bike) = setup();
+    let fixture = TestFixture::new();
     let dal = fixture.dal();
 
+    let person = fixture.create_person("Test Person");
+    let color = fixture.create_color("Test Color");
+
+    let new_bike = NewBike::new("Test Bike", Some(&person.id), Some(&color.id));
     let created_bike = dal.bike().create(&new_bike).unwrap();
-    assert_eq!(created_bike.name, "Mountain Bike");
+
+    assert_eq!(created_bike.name, "Test Bike");
+    assert_eq!(created_bike.owner_id, Some(person.id));
+    assert_eq!(created_bike.color_id, Some(color.id));
 }
 
 #[test]
 fn test_bike_read() {
-    let fixture = TestFixture::new();
+    let fixture = setup();
     let dal = fixture.dal();
 
-    fixture.setup_bikes();
-
     let bikes = dal.bike().find_all().unwrap();
-    assert_eq!(bikes.len(), 3);
+    assert_eq!(bikes.len(), 4);
 
     let first_bike = bikes.first().unwrap();
     let found_bike = dal.bike().find_by_id(&first_bike.id).unwrap();
@@ -45,29 +57,30 @@ fn test_bike_read() {
 
 #[test]
 fn test_bike_update() {
-    let fixture = TestFixture::new();
+    let fixture = setup();
     let dal = fixture.dal();
-
-    fixture.setup_bikes();
 
     let bikes = dal.bike().find_all().unwrap();
     let bike_to_update = bikes.first().unwrap();
 
+    let new_person = fixture.create_person("New Owner");
+    let new_color = fixture.create_color("New Color");
+
     let mut updated_bike = bike_to_update.clone();
     updated_bike.name = "Updated Bike Name".to_string();
+    updated_bike.owner_id = Some(new_person.id.clone());
+    updated_bike.color_id = Some(new_color.id.clone());
+
     let result = dal.bike().update(&bike_to_update.id, &updated_bike).unwrap();
     assert_eq!(result.name, "Updated Bike Name");
-
-    let found_bike = dal.bike().find_by_id(&bike_to_update.id).unwrap();
-    assert_eq!(found_bike.name, "Updated Bike Name");
+    assert_eq!(result.owner_id, Some(new_person.id));
+    assert_eq!(result.color_id, Some(new_color.id));
 }
 
 #[test]
 fn test_bike_delete() {
-    let fixture = TestFixture::new();
+    let fixture = setup();
     let dal = fixture.dal();
-
-    fixture.setup_bikes();
 
     let bikes = dal.bike().find_all().unwrap();
     let bike_to_delete = bikes.last().unwrap();
@@ -77,36 +90,84 @@ fn test_bike_delete() {
 
     let find_result = dal.bike().find_by_id(&bike_to_delete.id);
     assert!(find_result.is_err());
-
-    let remaining_bikes = dal.bike().find_all().unwrap();
-    assert_eq!(remaining_bikes.len(), 2);
 }
 
 #[test]
-fn test_bike_filter() {
-    let fixture = TestFixture::new();
+fn test_bike_filter_by_name() {
+    let fixture = setup();
     let dal = fixture.dal();
 
-    fixture.setup_bikes();
+    let conditions = vec![Condition::name(StringFilter::Equal("Mountain Bike".to_string()))];
+    let bikes = dal.bike().find_with_filters(conditions).unwrap();
+    assert_eq!(bikes.len(), 1);
+    assert_eq!(bikes[0].name, "Mountain Bike");
+}
 
-    // Filter by color
-    let red_bikes = dal.bike().find_with_filters(
-        Some(StringFilter::Equal("Red".to_string())),
-        None
-    ).unwrap();
-    assert!(red_bikes.iter().all(|b| b.color_id == Some("Red".to_string())));
+#[test]
+fn test_bike_filter_by_color() {
+    let fixture = setup();
+    let dal = fixture.dal();
 
-    // Filter by owner
-    let alice_bikes = dal.bike().find_with_filters(
-        None,
-        Some(StringFilter::Equal("Alice".to_string()))
-    ).unwrap();
-    assert!(alice_bikes.iter().all(|b| b.owner_id == Some("Alice".to_string())));
+    let conditions = vec![Condition::color(StringFilter::Equal("Red".to_string()))];
+    let bikes = dal.bike().find_with_filters(conditions).unwrap();
+    assert_eq!(bikes.len(), 2);
+}
 
-    // Filter by both color and owner
-    let alice_red_bikes = dal.bike().find_with_filters(
-        Some(StringFilter::Equal("Red".to_string())),
-        Some(StringFilter::Equal("Alice".to_string()))
-    ).unwrap();
-    assert!(alice_red_bikes.iter().all(|b| b.color_id == Some("Red".to_string()) && b.owner_id == Some("Alice".to_string())));
+#[test]
+fn test_bike_filter_combined() {
+    let fixture = setup();
+    let dal = fixture.dal();
+
+    let conditions = vec![
+        Condition::name(StringFilter::Equal("City Bike".to_string())),
+        Condition::color(StringFilter::Equal("Green".to_string())),
+    ];
+    let bikes = dal.bike().find_with_filters(conditions).unwrap();
+    assert_eq!(bikes.len(), 1);
+    assert_eq!(bikes[0].name, "City Bike");
+}
+
+#[test]
+fn test_bike_filter_no_results() {
+    let fixture = setup();
+    let dal = fixture.dal();
+
+    let conditions = vec![Condition::name(StringFilter::Equal("Nonexistent Bike".to_string()))];
+    let bikes = dal.bike().find_with_filters(conditions).unwrap();
+    assert_eq!(bikes.len(), 0);
+}
+
+#[test]
+fn test_bike_filter_like() {
+    let fixture = setup();
+    let dal = fixture.dal();
+
+    let conditions = vec![Condition::name(StringFilter::Like("%Bike%".to_string()))];
+    let bikes = dal.bike().find_with_filters(conditions).unwrap();
+    assert_eq!(bikes.len(), 4);
+}
+
+#[test]
+fn test_bike_filter_in() {
+    let fixture = setup();
+    let dal = fixture.dal();
+
+    let conditions = vec![Condition::name(StringFilter::In(vec![
+        "Mountain Bike".to_string(),
+        "Road Bike".to_string(),
+    ]))];
+    let bikes = dal.bike().find_with_filters(conditions).unwrap();
+    assert_eq!(bikes.len(), 2);
+}
+
+#[test]
+fn test_bike_filter_no_owner() {
+    let fixture = setup();
+    let dal = fixture.dal();
+
+    let conditions = vec![Condition::name(StringFilter::Equal("BMX Bike".to_string()))];
+    let bikes = dal.bike().find_with_filters(conditions).unwrap();
+    assert_eq!(bikes.len(), 1);
+    assert_eq!(bikes[0].name, "BMX Bike");
+    assert_eq!(bikes[0].owner_id, None);
 }

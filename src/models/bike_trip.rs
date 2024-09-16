@@ -54,13 +54,13 @@ impl NewBikeTrip {
 /// enabling flexible and powerful search capabilities for bike trips.
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone)]
-pub enum Condition {
+pub enum BikeTripCondition {
     /// Filter by the name of the bike trip.
     name(StringFilter),
     /// Filter by conditions related to the associated bike.
-    bike(super::bike::Condition),
+    bike(super::bike::BikeCondition),
     /// Combine multiple conditions with a logical AND.
-    And(Vec<Condition>),
+    And(Vec<BikeTripCondition>),
     /// Combine multiple conditions with a logical OR.
-    Or(Vec<Condition>),
+    Or(Vec<BikeTripCondition>),
 }

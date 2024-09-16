@@ -46,10 +46,11 @@ impl NewColor {
 /// This enum is crucial for implementing dynamic filtering in the data access layer.
 /// It allows for the construction of complex query conditions at runtime,
 /// enabling flexible and powerful search capabilities for colors.
+#[allow(non_camel_case_types)]
 #[derive(Debug, Clone)]
 pub enum ColorCondition {
     /// Filter by the name of the color.
-    Name(StringFilter),
+    name(StringFilter),
     /// Combine multiple conditions with a logical AND.
     And(Vec<ColorCondition>),
     /// Combine multiple conditions with a logical OR.

@@ -5,3 +5,16 @@ First - this repo is **HEAVILY** based on the examples in [diesel-rs-dynamic-fil
 
 
 
+## Setting up and running the examples
+
+1. Clone the repo.
+2. Start a postgres instance using Docker
+```
+docker run --name postgres-test \
+  -e POSTGRESQL_PASSWORD=password \
+  -e POSTGRESQL_DATABASE=postgres \
+  -p 5432:5432 \
+  -d bitnami/postgresql:latest
+```
+3. Run the integration tests via `cargo test --test integration`
+
