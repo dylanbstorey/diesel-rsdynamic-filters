@@ -8,7 +8,7 @@ use crate::schema;
 use crate::models::common::StringFilter;
 use crate::models::AndOr;
 use crate::dal::string_filter;
-use crate::dal::bike;
+
 
 type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
@@ -84,10 +84,10 @@ impl PersonCondition {
             },
             PersonCondition::bike(conditions) => {
                 // Inner statement, reusing conditions defined in bike
-                let inner_statement = bike::create_filtered_query(conditions);
+                let inner_statement = crate::dal::bike::create_filtered_query(conditions);
                 Box::new(
                     schema::person::dsl::id
-                        .eq_any(inner_statement.select(schema::bike::dsl::owner_id).into_boxed())
+                        .eq_any(inner_statement.select(schema::bike::dsl::owner_id))
                         .nullable(),
                 )
             }
